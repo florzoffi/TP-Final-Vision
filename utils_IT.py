@@ -2,12 +2,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from PIL import Image
-
-def find_root(ROOTS, CLASSES):
-    for r in ROOTS:
-        for p in r.rglob('*'):
-            if all((p/c).is_dir() for c in CLASSES): return p
-            
+        
         
 def draw_yolo_boxes(img_path, CLASSES):
     txt_path = img_path.with_suffix('.txt')
@@ -35,3 +30,25 @@ def draw_yolo_boxes(img_path, CLASSES):
 
     plt.axis('off')
     plt.show()
+
+    
+def load_images_by_class(data_dir='data', classes=('Horse', 'Deer', 'Cow')):
+    """
+    Carga las imágenes organizadas por clase desde una carpeta raíz.
+    Muestra resumen y dibuja ejemplos con draw_yolo_boxes().
+    """
+    IMG_EXTS = {'.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'}
+    
+    DATASET_ROOT = Path(data_dir)
+    images = {}
+    for cls in classes:
+        class_dir = DATASET_ROOT / cls.lower()
+        images[cls] = [p for p in class_dir.rglob('*') if p.suffix in IMG_EXTS]
+
+    # Mostrar resumen y ejemplos
+    for c, lst in images.items():
+        print(f"{c}: {len(lst)} imágenes")
+        for p in lst[:2]:
+            draw_yolo_boxes(p, classes)
+    
+    return images
