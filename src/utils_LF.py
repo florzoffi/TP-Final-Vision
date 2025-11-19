@@ -63,6 +63,89 @@ def iou_xywh(box1, box2):
 
     return inter_area / union
 
+def run_late_fusion_split(model_rgb, model_t, rgb_dir, t_dir, out_img_dir, out_pred_dir):
+    rgb_dir = Path(rgb_dir)
+    t_dir   = Path(t_dir)
+
+    img_paths_rgb = sorted(
+        list(rgb_dir.glob("*.jpg")) +
+        list(rgb_dir.glob("*.JPG")) +
+        list(rgb_dir.glob("*.png")) +
+        list(rgb_dir.glob("*.PNG"))
+    )
+
+    print(f"Procesando {len(img_paths_rgb)} imágenes en {rgb_dir}")
+
+    for img_rgb_path in img_paths_rgb:
+        img_name = img_rgb_path.name
+        stem_rgb = img_rgb_path.stem
+        ext_rgb  = img_rgb_path.suffix
+
+        # --- mapear térmica num-1 + "_R"
+        parts = stem_rgb.split("_")
+        num_str = parts[-1]
+
+        if not num_str.isdigit():
+            print(f"[WARN] No puedo leer número en {img_name}")
+            continue
+
+        num_rgb = int(num_str)
+        num_t = num_rgb - 1
+        num_t_str = str(num_t).zfill(len(num_str))
+
+        prefix = "_".join(parts[:-1])
+        stem_t = f"{prefix}_{num_t_str}_R"
+
+        img_t_path = t_dir / f"{stem_t}{ext_rgb}"
+
+        if not img_t_path.exists():
+            # buscar cualquier extensión
+            candidates = list(t_dir.glob(f"{stem_t}.*"))
+            if len(candidates) == 0:
+                print(f"[WARN] No se encontró térmica para {img_name}")
+                continue
+            img_t_path = candidates[0]
+
+        # inferencias
+        res_rgb = model_rgb(str(img_rgb_path), imgsz=640, device="cpu", verbose=False)[0]
+        res_t   = model_t(str(img_t_path),   imgsz=640, device="cpu", verbose=False)[0]
+
+        fused = yolo_late_fusion(
+            res_rgb,
+            res_t,
+            iou_det=0.6,
+            prob_thr=0.45,
+            iou_match=0.3
+        )
+
+        pred_file = out_pred_dir / f"{stem_rgb}.txt"
+
+        if fused.numel() == 0:
+            open(pred_file, "w").close()
+            print(f"[OK] Sin detecciones → {img_name}")
+            continue
+
+        # guardar predicciones TXT normalizadas
+        img_bgr = cv2.imread(str(img_rgb_path))
+        H, W = img_bgr.shape[:2]
+
+        fused_np = fused.cpu().numpy()
+        with open(pred_file, "w") as f:
+            for x1, y1, x2, y2, conf, cls in fused_np:
+                cx = (x1 + x2) / 2 / W
+                cy = (y1 + y2) / 2 / H
+                w  = (x2 - x1) / W
+                h  = (y2 - y1) / H
+
+                f.write(f"{int(cls)} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f} {conf:.4f}\n")
+
+        # guardar imagen fusionada
+        img_out = draw_fused_boxes(img_bgr, fused)
+        cv2.imwrite(str(out_img_dir / img_name), img_out)
+
+        print(f"[OK] {img_name} → pred + imagen guardadas")
+
+    print(f"✅ Listo: guardado en {out_pred_dir}")
 
 # --------------------------------------------------
 # Evaluación: AP por clase + mAP + métricas globales

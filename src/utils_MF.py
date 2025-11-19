@@ -2,6 +2,7 @@ from pathlib import Path
 import torch
 import cv2
 import numpy as np
+from utils_LF import plot_ap_bar
 
 
 # ---------------------------------------------------------
@@ -188,3 +189,114 @@ def draw_fused_boxes(img_bgr, fused_tensor, class_names=None):
             cv2.LINE_AA,
         )
     return img
+
+def print_metrics(name, metrics):
+    print(f"{name} @ IoU 0.5")
+    print("-" * (len(name) + 12))
+    print("mAP:      ", metrics["mAP"])
+    print("Precision:", metrics["Precision"])
+    print("Recall:   ", metrics["Recall"])
+    print("F1:       ", metrics["F1"])
+    print("AP por clase:", metrics["AP_per_class"])
+
+
+def run_middle_fusion_split(
+    model_rgb,
+    model_t,
+    class_names,
+    rgb_dir: Path,
+    t_dir: Path,
+    out_img_dir: Path,
+    out_pred_dir: Path,
+    img_size: int = 640,
+):
+    """
+    Aplica Middle Fusion sobre todas las imágenes RGB de un directorio,
+    matcheando con sus térmicas, y guarda:
+      - imágenes con cajas en out_img_dir
+      - predicciones .txt (formato YOLO) en out_pred_dir
+    """
+    rgb_paths = sorted(
+        list(rgb_dir.glob("*.jpg")) +
+        list(rgb_dir.glob("*.JPG")) +
+        list(rgb_dir.glob("*.png")) +
+        list(rgb_dir.glob("*.PNG"))
+    )
+
+    print(f"Encontradas {len(rgb_paths)} imágenes RGB en {rgb_dir}.")
+
+    for img_rgb_path in rgb_paths:
+        img_name = img_rgb_path.name
+        stem_rgb = img_rgb_path.stem
+        ext_rgb  = img_rgb_path.suffix
+
+        # ---------- mapear a térmica: num-1 + "_R" ----------
+        parts = stem_rgb.split("_")
+        num_str = parts[-1]
+        if not num_str.isdigit():
+            print(f"[WARN] {img_name}: no puedo leer número, salto.")
+            continue
+
+        num_rgb = int(num_str)
+        num_t   = num_rgb - 1
+        num_t_str = str(num_t).zfill(len(num_str))
+        prefix = "_".join(parts[:-1])
+        stem_t = f"{prefix}_{num_t_str}_R"
+
+        img_t_path = t_dir / f"{stem_t}{ext_rgb}"
+        if not img_t_path.exists():
+            candidates = list(t_dir.glob(f"{stem_t}.*"))
+            if len(candidates) == 0:
+                print(f"[WARN] No se encontró térmica para {img_name} (esperaba {stem_t}{ext_rgb})")
+                continue
+            img_t_path = candidates[0]
+
+        # ---------- inferencias ----------
+        res_rgb = model_rgb(str(img_rgb_path), imgsz=img_size, device="cpu", verbose=False)[0]
+        res_t   = model_t(str(img_t_path),    imgsz=img_size, device="cpu", verbose=False)[0]
+
+        # ---------- Middle Fusion ----------
+        fused = yolo_middle_fusion(
+            res_rgb,
+            res_t,
+            iou_match=0.5,
+            conf_penalty_single=0.9,
+        )
+
+        # ---------- guardar predicciones en TXT (formato YOLO) ----------
+        pred_txt_path = out_pred_dir / f"{stem_rgb}.txt"
+
+        if fused.numel() == 0:
+            # archivo vacío si no hay detecciones
+            open(pred_txt_path, "w").close()
+        else:
+            # leemos la imagen para conocer H,W (para normalizar)
+            img_bgr = cv2.imread(str(img_rgb_path))
+            H, W = img_bgr.shape[:2]
+
+            fused_np = fused.cpu().numpy()
+            with open(pred_txt_path, "w") as f:
+                for x1, y1, x2, y2, conf, cls in fused_np:
+                    # convertir a cx,cy,w,h normalizados
+                    cx = (x1 + x2) / 2.0
+                    cy = (y1 + y2) / 2.0
+                    w  = (x2 - x1)
+                    h  = (y2 - y1)
+
+                    cx /= W
+                    cy /= H
+                    w  /= W
+                    h  /= H
+
+                    line = f"{int(cls)} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f} {conf:.4f}\n"
+                    f.write(line)
+
+        # ---------- dibujar y guardar imagen ----------
+        img_bgr = cv2.imread(str(img_rgb_path))
+        img_out = draw_fused_boxes(img_bgr, fused, class_names)
+        out_img_path = out_img_dir / img_name
+        cv2.imwrite(str(out_img_path), img_out)
+
+        print(f"[OK] Middle Fusion: {img_name} -> img:{out_img_path.name}, preds:{pred_txt_path.name}")
+
+    print(f"✅ Listo: imágenes en {out_img_dir} y predicciones en {out_pred_dir}")
