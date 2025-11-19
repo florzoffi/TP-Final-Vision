@@ -1,4 +1,4 @@
-path: data\format_hst
+path: data/format_hst
 
 train: images/train
 val: images/val

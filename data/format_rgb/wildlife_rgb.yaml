@@ -1,4 +1,4 @@
-path: data\format_rgb
+path: data/format_rgb
 
 train: images/train
 val: images/val
