@@ -228,26 +228,18 @@ def run_middle_fusion_split(
         stem_rgb = img_rgb_path.stem
         ext_rgb  = img_rgb_path.suffix
 
-        # ---------- mapear a térmica: num-1 + "_R" ----------
-        parts = stem_rgb.split("_")
-        num_str = parts[-1]
-        if not num_str.isdigit():
-            print(f"[WARN] {img_name}: no puedo leer número, salto.")
-            continue
+        # ---------- mapear a térmica: MISMO NOMBRE QUE RGB ----------
+        # Caso 1: misma extensión y mismo nombre
+        img_t_path = t_dir / img_name
 
-        num_rgb = int(num_str)
-        num_t   = num_rgb - 1
-        num_t_str = str(num_t).zfill(len(num_str))
-        prefix = "_".join(parts[:-1])
-        stem_t = f"{prefix}_{num_t_str}_R"
-
-        img_t_path = t_dir / f"{stem_t}{ext_rgb}"
+        # Caso 2: por si la térmica tiene otra extensión (e.g. .png)
         if not img_t_path.exists():
-            candidates = list(t_dir.glob(f"{stem_t}.*"))
+            candidates = list(t_dir.glob(f"{stem_rgb}.*"))
             if len(candidates) == 0:
-                print(f"[WARN] No se encontró térmica para {img_name} (esperaba {stem_t}{ext_rgb})")
+                print(f"[WARN] No se encontró térmica para {img_name} (busqué {img_name} y {stem_rgb}.*)")
                 continue
             img_t_path = candidates[0]
+
 
         # ---------- inferencias ----------
         res_rgb = model_rgb(str(img_rgb_path), imgsz=img_size, device="cpu", verbose=False)[0]
