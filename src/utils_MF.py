@@ -1,8 +1,6 @@
 from pathlib import Path
 import torch
 import cv2
-import numpy as np
-from utils_LF import plot_ap_bar
 
 
 # ---------------------------------------------------------

@@ -1,9 +1,7 @@
 import torch
 import cv2
-import os
 import numpy as np
 from pathlib import Path
-from collections import defaultdict
 import matplotlib.pyplot as plt
 
 def box_iou_xyxy(box1, box2):
