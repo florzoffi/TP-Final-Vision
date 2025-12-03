@@ -237,6 +237,7 @@ def run_middle_fusion_split(
             candidates = list(t_dir.glob(f"{stem_rgb}.*"))
             if len(candidates) == 0:
                 print(f"[WARN] No se encontró térmica para {img_name} (busqué {img_name} y {stem_rgb}.*)")
+                print(f"[PAIR] RGB: {img_name}  <->  T: {img_t_path.name}")
                 continue
             img_t_path = candidates[0]
 
