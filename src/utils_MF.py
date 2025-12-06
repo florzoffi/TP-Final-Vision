@@ -127,12 +127,10 @@ def yolo_middle_fusion(
             )
             used_t.add(best_j)
         else:
-            # caja solo de RGB, la conservamos pero penalizamos conf
             b_new = b_r.clone()
             b_new[4] = b_new[4] * conf_penalty_single
             fused_boxes.append(b_new)
 
-    # 2) Agregar cajas de T que no fueron usadas
     for j in range(boxes_t.shape[0]):
         if j not in used_t:
             b_t = boxes_t[j].clone()
@@ -144,15 +142,9 @@ def yolo_middle_fusion(
 
     fused_tensor = torch.stack(fused_boxes, dim=0)
 
-    # 3) opcional: NMS ligero propio (para limpiar solapamientos excesivos)
-    #    por simplicidad no lo hacemos acá; se podría agregar si hace falta.
 
     return fused_tensor
 
-
-# ---------------------------------------------------------
-# 4. Dibujar cajas fusionadas (podés usar la misma firma que en Late-F)
-# ---------------------------------------------------------
 def draw_fused_boxes(img_bgr, fused_tensor, class_names=None):
     """
     img_bgr: imagen BGR (cv2.imread)
