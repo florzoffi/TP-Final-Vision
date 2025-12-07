@@ -1,7 +1,7 @@
 from pathlib import Path
 import torch
 import cv2
-
+import re
 
 # ---------------------------------------------------------
 # 1. Helper: extraer cajas de un objeto Results de Ultralytics
@@ -220,16 +220,45 @@ def run_middle_fusion_split(
         stem_rgb = img_rgb_path.stem
         ext_rgb  = img_rgb_path.suffix
 
-        # ---------- mapear a térmica: MISMO NOMBRE QUE RGB ----------
-        # Caso 1: misma extensión y mismo nombre
-        img_t_path = t_dir / img_name
+        # ---------- mapear a térmica: MISMO NOMBRE QUE RGB ----------  # .JPG
 
-        # Caso 2: por si la térmica tiene otra extensión (e.g. .png)
-        if not img_t_path.exists():
-            candidates = list(t_dir.glob(f"{stem_rgb}.*"))
-            if len(candidates) == 0:
-                print(f"[WARN] No se encontró térmica para {img_name} (busqué {img_name} y {stem_rgb}.*)")
-                print(f"[PAIR] RGB: {img_name}  <->  T: {img_t_path.name}")
+        # buscamos patrón ..._DJI_#### en el nombre
+        m = re.search(r"(.*_DJI_)(\d{4})$", stem_rgb)
+        if m:
+            prefix = m.group(1)           # "020221_deer_pens_xt2_DJI_"
+            num    = int(m.group(2))      # 306
+
+            # la térmica parece ser num-1 con sufijo _R
+            cand_stems = [
+                f"{prefix}{num:04d}_R",       # por si alguna coincide mismo número
+                f"{prefix}{num-1:04d}_R",     # caso típico: 0305_R
+                f"{prefix}{num+1:04d}_R",     # por si hay alguna desfasada +1
+            ]
+
+            img_t_path = None
+            for cs in cand_stems:
+                # misma extensión que RGB
+                p = t_dir / f"{cs}{ext_rgb}"
+                if p.exists():
+                    img_t_path = p
+                    break
+
+                # cualquier extensión
+                matches = list(t_dir.glob(f"{cs}.*"))
+                if matches:
+                    img_t_path = matches[0]
+                    break
+
+            if img_t_path is None:
+                print(f"[WARN] No se encontró térmica para {img_name}")
+                print("       probé:", ", ".join(f"{cs}.*" for cs in cand_stems))
+                continue
+
+        else:
+            # si el patrón no matchea, hacemos un fallback muy laxo
+            candidates = list(t_dir.glob(f"{stem_rgb}*R.*"))
+            if not candidates:
+                print(f"[WARN] No se encontró térmica para {img_name} (fallback)")
                 continue
             img_t_path = candidates[0]
 
