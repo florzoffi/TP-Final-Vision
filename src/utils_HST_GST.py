@@ -1,5 +1,3 @@
-# utils_multispectral.py
-
 from pathlib import Path
 from PIL import Image
 import shutil

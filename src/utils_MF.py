@@ -3,33 +3,17 @@ import torch
 import cv2
 import re
 
-# ---------------------------------------------------------
-# 1. Helper: extraer cajas de un objeto Results de Ultralytics
-#    Devuelve tensor Nx6: [x1,y1,x2,y2,conf,cls]
-# ---------------------------------------------------------
 def results_to_tensor(res):
-    """
-    res: ultralytics.engine.results.Results
-    return: torch.Tensor [N,6] en CPU (xyxy, conf, cls)
-    """
     if res.boxes is None or res.boxes.xyxy.numel() == 0:
         return torch.zeros((0, 6), dtype=torch.float32)
 
-    xyxy = res.boxes.xyxy  # [N,4]
-    conf = res.boxes.conf.view(-1, 1)  # [N,1]
-    cls  = res.boxes.cls.view(-1, 1)   # [N,1]
+    xyxy = res.boxes.xyxy  
+    conf = res.boxes.conf.view(-1, 1)  
+    cls  = res.boxes.cls.view(-1, 1)   
 
     return torch.cat([xyxy, conf, cls], dim=1).detach().cpu()
 
-
-# ---------------------------------------------------------
-# 2. IoU en xyxy (para matchear cajas entre RGB y T)
-# ---------------------------------------------------------
 def box_iou_xyxy(box1, box2):
-    """
-    box1, box2: tensores [4] con [x1,y1,x2,y2]
-    devuelve escalar IoU
-    """
     x1 = max(box1[0], box2[0])
     y1 = max(box1[1], box2[1])
     x2 = min(box1[2], box2[2])
@@ -45,39 +29,20 @@ def box_iou_xyxy(box1, box2):
     union = area1 + area2 - inter + 1e-6
     return inter / union
 
-
-# ---------------------------------------------------------
-# 3. Middle Fusion tipo "Weighted Box Fusion"
-#    - Matchea cajas RGB y T por IoU + clase
-#    - Funde coords y conf como promedio ponderado
-#    - Las no matcheadas se conservan (tal vez penalizadas)
-# ---------------------------------------------------------
 def yolo_middle_fusion(
     res_rgb,
     res_t,
     iou_match: float = 0.5,
     conf_penalty_single: float = 0.9,
 ):
-    """
-    Middle Fusion simple entre detecciones RGB y T.
-
-    - res_rgb, res_t: Results de Ultralytics
-    - iou_match: IoU mínimo para considerar que dos cajas (misma clase) representan el mismo objeto
-    - conf_penalty_single: factor para bajar levemente la conf de cajas que vienen solo de una rama
-
-    Return:
-        torch.Tensor [M,6] -> [x1,y1,x2,y2,conf,cls] fusionadas
-    """
-    boxes_rgb = results_to_tensor(res_rgb)  # [Nr,6]
-    boxes_t   = results_to_tensor(res_t)    # [Nt,6]
+    boxes_rgb = results_to_tensor(res_rgb)  
+    boxes_t   = results_to_tensor(res_t)    
 
     if boxes_rgb.numel() == 0 and boxes_t.numel() == 0:
         return torch.zeros((0, 6), dtype=torch.float32)
-
     fused_boxes = []
     used_t = set()
 
-    # 1) Fusionar cajas que matchean (misma clase + IoU alto)
     for i in range(boxes_rgb.shape[0]):
         b_r = boxes_rgb[i]
         br_xyxy = b_r[:4]
@@ -105,7 +70,6 @@ def yolo_middle_fusion(
                 best_j = j
 
         if best_j >= 0 and best_iou >= iou_match:
-            # fuse RGB + T (weighted by confidence)
             b_t = boxes_t[best_j]
             bt_xyxy = b_t[:4]
             bt_conf = b_t[4].item()
@@ -146,11 +110,6 @@ def yolo_middle_fusion(
     return fused_tensor
 
 def draw_fused_boxes(img_bgr, fused_tensor, class_names=None):
-    """
-    img_bgr: imagen BGR (cv2.imread)
-    fused_tensor: tensor [N,6] con [x1,y1,x2,y2,conf,cls]
-    class_names: dict o lista {id: "nombre"}
-    """
     img = img_bgr.copy()
     if fused_tensor.numel() == 0:
         return img
@@ -200,12 +159,6 @@ def run_middle_fusion_split(
     out_pred_dir: Path,
     img_size: int = 640,
 ):
-    """
-    Aplica Middle Fusion sobre todas las imágenes RGB de un directorio,
-    matcheando con sus térmicas, y guarda:
-      - imágenes con cajas en out_img_dir
-      - predicciones .txt (formato YOLO) en out_pred_dir
-    """
     rgb_paths = sorted(
         list(rgb_dir.glob("*.jpg")) +
         list(rgb_dir.glob("*.JPG")) +
@@ -220,30 +173,24 @@ def run_middle_fusion_split(
         stem_rgb = img_rgb_path.stem
         ext_rgb  = img_rgb_path.suffix
 
-        # ---------- mapear a térmica: MISMO NOMBRE QUE RGB ----------  # .JPG
-
-        # buscamos patrón ..._DJI_#### en el nombre
         m = re.search(r"(.*_DJI_)(\d{4})$", stem_rgb)
         if m:
-            prefix = m.group(1)           # "020221_deer_pens_xt2_DJI_"
-            num    = int(m.group(2))      # 306
+            prefix = m.group(1)           
+            num    = int(m.group(2))     
 
-            # la térmica parece ser num-1 con sufijo _R
             cand_stems = [
-                f"{prefix}{num:04d}_R",       # por si alguna coincide mismo número
-                f"{prefix}{num-1:04d}_R",     # caso típico: 0305_R
-                f"{prefix}{num+1:04d}_R",     # por si hay alguna desfasada +1
+                f"{prefix}{num:04d}_R",       
+                f"{prefix}{num-1:04d}_R",     
+                f"{prefix}{num+1:04d}_R",     
             ]
 
             img_t_path = None
             for cs in cand_stems:
-                # misma extensión que RGB
                 p = t_dir / f"{cs}{ext_rgb}"
                 if p.exists():
                     img_t_path = p
                     break
 
-                # cualquier extensión
                 matches = list(t_dir.glob(f"{cs}.*"))
                 if matches:
                     img_t_path = matches[0]
@@ -255,19 +202,15 @@ def run_middle_fusion_split(
                 continue
 
         else:
-            # si el patrón no matchea, hacemos un fallback muy laxo
             candidates = list(t_dir.glob(f"{stem_rgb}*R.*"))
             if not candidates:
                 print(f"[WARN] No se encontró térmica para {img_name} (fallback)")
                 continue
             img_t_path = candidates[0]
 
-
-        # ---------- inferencias ----------
         res_rgb = model_rgb(str(img_rgb_path), imgsz=img_size, device="cpu", verbose=False)[0]
         res_t   = model_t(str(img_t_path),    imgsz=img_size, device="cpu", verbose=False)[0]
 
-        # ---------- Middle Fusion ----------
         fused = yolo_middle_fusion(
             res_rgb,
             res_t,
@@ -275,21 +218,17 @@ def run_middle_fusion_split(
             conf_penalty_single=0.9,
         )
 
-        # ---------- guardar predicciones en TXT (formato YOLO) ----------
         pred_txt_path = out_pred_dir / f"{stem_rgb}.txt"
 
         if fused.numel() == 0:
-            # archivo vacío si no hay detecciones
             open(pred_txt_path, "w").close()
         else:
-            # leemos la imagen para conocer H,W (para normalizar)
             img_bgr = cv2.imread(str(img_rgb_path))
             H, W = img_bgr.shape[:2]
 
             fused_np = fused.cpu().numpy()
             with open(pred_txt_path, "w") as f:
                 for x1, y1, x2, y2, conf, cls in fused_np:
-                    # convertir a cx,cy,w,h normalizados
                     cx = (x1 + x2) / 2.0
                     cy = (y1 + y2) / 2.0
                     w  = (x2 - x1)
@@ -302,8 +241,6 @@ def run_middle_fusion_split(
 
                     line = f"{int(cls)} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f} {conf:.4f}\n"
                     f.write(line)
-
-        # ---------- dibujar y guardar imagen ----------
         img_bgr = cv2.imread(str(img_rgb_path))
         img_out = draw_fused_boxes(img_bgr, fused, class_names)
         out_img_path = out_img_dir / img_name
@@ -311,4 +248,4 @@ def run_middle_fusion_split(
 
         print(f"[OK] Middle Fusion: {img_name} -> img:{out_img_path.name}, preds:{pred_txt_path.name}")
 
-    print(f"✅ Listo: imágenes en {out_img_dir} y predicciones en {out_pred_dir}")
+    print(f"Listo: imágenes en {out_img_dir} y predicciones en {out_pred_dir}")

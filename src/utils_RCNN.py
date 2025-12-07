@@ -3,18 +3,16 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
+import numpy as np
 
 class WildlifeYOLODataset(Dataset):
     def __init__(self, images_dir, labels_dir, transforms=None):
         self.images_dir = Path(images_dir)
         self.labels_dir = Path(labels_dir)
-        # admitimos jpg/png por las dudas
         exts = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
         self.images = sorted([p for p in self.images_dir.rglob("*") if p.suffix in exts])
         self.transforms = transforms
-
-        # 3 clases + background (que es 0 en Faster R-CNN)
-        self.class_names = ["Cow", "Deer", "Horse"]  # ajustá si tu orden es distinto
+        self.class_names = ["Cow", "Deer", "Horse"]  
 
     def __len__(self):
         return len(self.images)
@@ -24,9 +22,7 @@ class WildlifeYOLODataset(Dataset):
         img = Image.open(img_path).convert("RGB")
         w, h = img.size
 
-        # archivo de labels YOLO
         label_path = self.labels_dir / (img_path.stem + ".txt")
-
         boxes = []
         labels = []
 
@@ -38,8 +34,6 @@ class WildlifeYOLODataset(Dataset):
                         continue
                     cls, cx, cy, bw, bh = map(float, parts)
                     cls = int(cls)
-
-                    # YOLO (cx,cy,w,h) normalizado → px
                     cx *= w
                     cy *= h
                     bw *= w
@@ -51,11 +45,9 @@ class WildlifeYOLODataset(Dataset):
                     ymax = cy + bh / 2
 
                     boxes.append([xmin, ymin, xmax, ymax])
-                    # Faster R-CNN usa 0 como background, así que nuestras clases arrancan en 1
                     labels.append(cls + 1)
 
         if len(boxes) == 0:
-            # necesario para que no explote; rara vez debería pasar
             boxes = torch.zeros((0, 4), dtype=torch.float32)
             labels = torch.zeros((0,), dtype=torch.int64)
         else:
@@ -81,7 +73,6 @@ class WildlifeYOLODataset(Dataset):
 
 def get_transform(train):
     transforms = [T.ToTensor()]
-    # si querés, acá después podés agregar flips, color jitter, etc.
     return T.Compose(transforms)
 
 def evaluate_fasterrcnn(model, data_loader, device, iou_thresholds=IOU_THRESHOLDS, num_classes=3):
@@ -242,10 +233,6 @@ def evaluate_fasterrcnn(model, data_loader, device, iou_thresholds=IOU_THRESHOLD
     return metrics
 
 def box_iou(box1, box2):
-    """
-    box1: [4]  (x1, y1, x2, y2)
-    box2: [4]
-    """
     x1 = max(box1[0], box2[0])
     y1 = max(box1[1], box2[1])
     x2 = min(box1[2], box2[2])
@@ -265,10 +252,6 @@ def box_iou(box1, box2):
 
 
 def compute_ap(precision, recall):
-    """
-    AP como área bajo la curva P-R (regla del trapecio).
-    precision, recall: arrays ordenados por recall creciente.
-    """
     idx = np.argsort(recall)
     recall = recall[idx]
     precision = precision[idx]

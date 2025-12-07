@@ -5,11 +5,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 def box_iou_xyxy(box1, box2):
-    """
-    box1: [4], box2: [4] en formato [x1, y1, x2, y2]
-    devuelve IoU escalar
-    """
-    # intersección
     ix1 = max(box1[0], box2[0])
     iy1 = max(box1[1], box2[1])
     ix2 = min(box1[2], box2[2])
@@ -19,23 +14,12 @@ def box_iou_xyxy(box1, box2):
     inter_h = max(iy2 - iy1, 0.0)
     inter = inter_w * inter_h
 
-    # áreas
     area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
     area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
     union = area1 + area2 - inter + 1e-6
     return inter / union
 
-
-# utils_LF.py
-
-# --------------------------------------------------
-# IoU para formato YOLO (cx, cy, w, h normalizado)
-# --------------------------------------------------
 def iou_xywh(box1, box2):
-    """
-    IoU entre dos cajas en formato [cx, cy, w, h] (normalizado 0-1)
-    """
     x1, y1, w1, h1 = box1
     x2, y2, w2, h2 = box2
 
@@ -78,8 +62,6 @@ def run_late_fusion_split(model_rgb, model_t, rgb_dir, t_dir, out_img_dir, out_p
         img_name = img_rgb_path.name
         stem_rgb = img_rgb_path.stem
         ext_rgb  = img_rgb_path.suffix
-
-        # --- mapear térmica num-1 + "_R"
         parts = stem_rgb.split("_")
         num_str = parts[-1]
 
@@ -97,14 +79,11 @@ def run_late_fusion_split(model_rgb, model_t, rgb_dir, t_dir, out_img_dir, out_p
         img_t_path = t_dir / f"{stem_t}{ext_rgb}"
 
         if not img_t_path.exists():
-            # buscar cualquier extensión
             candidates = list(t_dir.glob(f"{stem_t}.*"))
             if len(candidates) == 0:
                 print(f"[WARN] No se encontró térmica para {img_name}")
                 continue
             img_t_path = candidates[0]
-
-        # inferencias
         res_rgb = model_rgb(str(img_rgb_path), imgsz=640, device="cpu", verbose=False)[0]
         res_t   = model_t(str(img_t_path),   imgsz=640, device="cpu", verbose=False)[0]
 
@@ -122,8 +101,6 @@ def run_late_fusion_split(model_rgb, model_t, rgb_dir, t_dir, out_img_dir, out_p
             open(pred_file, "w").close()
             print(f"[OK] Sin detecciones → {img_name}")
             continue
-
-        # guardar predicciones TXT normalizadas
         img_bgr = cv2.imread(str(img_rgb_path))
         H, W = img_bgr.shape[:2]
 
@@ -136,23 +113,14 @@ def run_late_fusion_split(model_rgb, model_t, rgb_dir, t_dir, out_img_dir, out_p
                 h  = (y2 - y1) / H
 
                 f.write(f"{int(cls)} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f} {conf:.4f}\n")
-
-        # guardar imagen fusionada
         img_out = draw_fused_boxes(img_bgr, fused)
         cv2.imwrite(str(out_img_dir / img_name), img_out)
 
         print(f"[OK] {img_name} → pred + imagen guardadas")
 
-    print(f"✅ Listo: guardado en {out_pred_dir}")
+    print(f"Listo: guardado en {out_pred_dir}")
 
-# --------------------------------------------------
-# Evaluación: AP por clase + mAP + métricas globales
-# --------------------------------------------------
 def evaluate_yolo_predictions(pred_dir, gt_dir, num_classes, iou_threshold=0.5):
-    """
-    pred_dir: carpeta con .txt pred (class cx cy w h conf)
-    gt_dir:   carpeta con .txt GT (class cx cy w h)
-    """
     pred_dir = Path(pred_dir)
     gt_dir   = Path(gt_dir)
 
@@ -242,7 +210,6 @@ def evaluate_yolo_predictions(pred_dir, gt_dir, num_classes, iou_threshold=0.5):
         recalls    = tp_cum / (n_gt[c] + 1e-9)
         precisions = tp_cum / (tp_cum + fp_cum + 1e-9)
 
-        # AP = área bajo curva PR
         mrec = np.concatenate(([0.0], recalls, [1.0]))
         mpre = np.concatenate(([0.0], precisions, [0.0]))
         for i in range(mpre.size - 1, 0, -1):
@@ -277,15 +244,7 @@ def evaluate_yolo_predictions(pred_dir, gt_dir, num_classes, iou_threshold=0.5):
         "F1": f1_global
     }
 
-
-# --------------------------------------------------
-# Matriz de confusión
-# --------------------------------------------------
 def confusion_matrix_yolo(pred_dir, gt_dir, num_classes, iou_threshold=0.5):
-    """
-    Devuelve una matriz (num_classes+1)x(num_classes+1)
-    Última fila/columna: background (no detectado / falsa alarma)
-    """
     pred_dir = Path(pred_dir)
     gt_dir   = Path(gt_dir)
 
@@ -342,10 +301,6 @@ def confusion_matrix_yolo(pred_dir, gt_dir, num_classes, iou_threshold=0.5):
 
     return cm
 
-
-# --------------------------------------------------
-# Plots (confusion matrix + AP por clase)
-# --------------------------------------------------
 def plot_confusion_matrix(cm, class_labels, title="Confusion Matrix"):
     fig, ax = plt.subplots(figsize=(6, 6))
     im = ax.imshow(cm, interpolation="nearest")
@@ -378,10 +333,6 @@ def yolo_late_fusion(pred_rgb, pred_t,
                      iou_det=0.6,
                      prob_thr=0.45,
                      iou_match=0.3):
-    """
-    pred_rgb, pred_t: objetos Results[0] de Ultralytics (una imagen)
-    devuelve lista de detecciones fusionadas: [x1, y1, x2, y2, conf, cls]
-    """
     boxes_r = pred_rgb.boxes.xyxy.cpu().numpy()
     conf_r  = pred_rgb.boxes.conf.cpu().numpy()
     cls_r   = pred_rgb.boxes.cls.cpu().numpy()
@@ -392,8 +343,6 @@ def yolo_late_fusion(pred_rgb, pred_t,
 
     used_t = set()
     fused_dets = []
-
-    # 1) intentar emparejar cajas RGB con T de la misma clase
     for i in range(len(boxes_r)):
         best_j = -1
         best_iou = 0.0
@@ -408,11 +357,8 @@ def yolo_late_fusion(pred_rgb, pred_t,
                 best_j = j
 
         if best_j >= 0 and best_iou >= iou_match:
-            # hay match RGB–T
             cr, ct = conf_r[i], conf_t[best_j]
-            # regla PMS del paper
             if best_iou >= iou_det or max(cr, ct) >= prob_thr:
-                # usamos la caja del modelo más confiado
                 if cr >= ct:
                     box = boxes_r[i]
                     c   = cr
@@ -425,11 +371,9 @@ def yolo_late_fusion(pred_rgb, pred_t,
             used_t.add(best_j)
 
         else:
-            # RGB sin pareja -> se acepta sólo si la confianza es alta
             if conf_r[i] >= prob_thr:
                 fused_dets.append([*boxes_r[i], conf_r[i], cls_r[i]])
 
-    # 2) cajas T que quedaron sin usar
     for j in range(len(boxes_t)):
         if j in used_t:
             continue
@@ -442,11 +386,6 @@ def yolo_late_fusion(pred_rgb, pred_t,
     return torch.tensor(fused_dets)
 
 def draw_fused_boxes(img_bgr, fused_tensor, class_names=None):
-    """
-    img_bgr: imagen en BGR (cv2.imread)
-    fused_tensor: tensor Nx6 -> [x1, y1, x2, y2, conf, cls]
-    class_names: lista/dict con nombres de clases (opcional)
-    """
     img = img_bgr.copy()
     if fused_tensor.numel() == 0:
         return img
@@ -469,8 +408,3 @@ def draw_fused_boxes(img_bgr, fused_tensor, class_names=None):
                     1,
                     cv2.LINE_AA)
     return img
-
-
-
-
-

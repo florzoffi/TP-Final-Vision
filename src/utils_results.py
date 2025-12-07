@@ -1,22 +1,15 @@
 from pathlib import Path
 import cv2
-import numpy as np
 from utils_MF import results_to_tensor   
 
 def save_results_to_txt(res, img_path, out_dir):
-    """
-    res: Results de YOLO
-    img_path: Path de la imagen usada
-    out_dir: carpeta donde guardar el .txt
-    """
-
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     stem = Path(img_path).stem
     txt_path = out_dir / f"{stem}.txt"
 
-    boxes = results_to_tensor(res)  # [N,6] xyxy, conf, cls
+    boxes = results_to_tensor(res) 
 
     if boxes.numel() == 0:
         open(txt_path, "w").close()
