@@ -4,12 +4,6 @@ import shutil
 import cv2
 import numpy as np
 
-
-# -------------------------------------------------------------
-# 1. Mapear una imagen RGB a su térmica correspondiente
-#    Regla: RGB => 022521_DJI_0132.JPG
-#           T   => 022521_DJI_0131_R.JPG  (número-1 + "_R")
-# -------------------------------------------------------------
 def map_rgb_to_thermal(rgb_path: Path, t_split_root: Path) -> Optional[Path]:
     """
     Dado el path a una imagen RGB y la carpeta de térmicas de ese split,
